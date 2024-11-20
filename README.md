@@ -1,2 +1,2 @@
-# migrationtool
+# migration-tool
 openSUSE migration tool
