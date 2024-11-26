@@ -97,7 +97,6 @@ done
 }
 
 
-
 # Clear the screen and handle the user choice
 clear
 if [ "$CHOICE" == "1" ]; then
@@ -131,7 +130,7 @@ elif [ "$CHOICE" == "2" ]; then
 	zypper dup --allow-vendor-change --force-resolution -y
 # to slowroll
 elif [ "$CHOICE" = "3" ]; then
-        zypper addrepo https://download.opensuse.org/slowroll/repo/oss/ leap-to-slowroll
+    zypper addrepo https://download.opensuse.org/slowroll/repo/oss/ leap-to-slowroll
 	shopt -s globstar && TMPSR=$(mktemp -d) && zypper --pkg-cache-dir=${TMPSR} download openSUSE-repos-Slowroll && zypper modifyrepo --all --disable && zypper install ${TMPSR}/**/openSUSE-repos-Slowroll*.rpm && zypper dist-upgrade
 	zypper dup --allow-vendor-change --force-resolution -y
 # to 16.0

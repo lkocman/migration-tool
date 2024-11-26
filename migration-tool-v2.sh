@@ -48,6 +48,7 @@ if [ $? != 0 ]; then
 fi
 DRYRUN=""
 PRERELEASE=""
+TMP_REPO_NAME="tmp-migration-tool-repo" # tmp repo to get sles-release or openSUSE-repos-*
 # Initialize MIGRATION_OPTIONS as an empty associative array
 declare -A MIGRATION_OPTIONS=()
 CURRENT_INDEX=1
@@ -95,7 +96,7 @@ if [[ "$NAME" == "openSUSE Leap Micro" ]]; then
     else
         populate_options "LeapMicro" "$VERSION" '.state=="Stable"'
     fi
-elif [[ "$NAME" == "openSUSE Leap" ]]; then
+elif [[ "$NAME" == "openSUSE Leap" ]] | [[ "$NAME" == "SLE" ]] ; then
     MIGRATION_OPTIONS["$CURRENT_INDEX"]="SUSE Linux Enterprise $(sed 's/\./ SP/' <<<"$VERSION")"
     ((CURRENT_INDEX++))
     MIGRATION_OPTIONS["$CURRENT_INDEX"]="openSUSE Tumbleweed"
@@ -131,14 +132,62 @@ CHOICE=$(dialog --clear \
     20 60 10 \
     "${DIALOG_ITEMS[@]}" \
     2>&1 >/dev/tty) || exit
-
-# Handle user choice
+zypper in snapper grub2-snapper-plugin
+rpmsave_repo() {
+for repo_file in \
+repo-backports-debug-update.repo repo-oss.repo repo-backports-update.repo \
+repo-sle-debug-update.repo repo-debug-non-oss.repo repo-sle-update.repo \
+repo-debug.repo repo-source.repo repo-debug-update.repo repo-update.repo \
+repo-debug-update-non-oss.repo repo-update-non-oss.repo repo-non-oss.repo \
+download.opensuse.org-oss.repo download.opensuse.org-non-oss.repo download.opensuse.org-tumbleweed.repo \
+repo-openh264.repo openSUSE-*-0.repo repo-main.repo $TMP_REPO_NAME.repo; do
+  if [ -f /etc/zypp/repos.d/$repo_file ]; then
+    echo "Storing old copy as /etc/zypp/repos.d/$repo_file.rpmsave"
+    mv /etc/zypp/repos.d/$repo_file /etc/zypp/repos.d/$repo_file.rpmsave
+  fi
+done
+# regexpes
+for file in /etc/zypp/repos.d/openSUSE-*.repo; do
+    repo_file=$(basename $file)
+    if [ -f /etc/zypp/repos.d/$repo_file ]; then
+        echo "Storing old copy as /etc/zypp/repos.d/$repo_file.rpmsave"
+        mv /etc/zypp/repos.d/$repo_file /etc/zypp/repos.d/$repo_file.rpmsave
+    fi
+done
+# Ensure to drop any SCC generated service/repo files for Leap
+# e.g. /etc/zypp/services.d/openSUSE_Leap_15.6_x86_64.service
+for file in /etc/zypp/services.d/openSUSE_*.service; do
+    service_file=$(basename $file)
+    if [ -f /etc/zypp/services.d/$service_file ]; then
+        echo "Storing old copy as /etc/zypp/repos.d/$service_file.rpmsave"
+        mv /etc/zypp/services.d/$service_file /etc/zypp/services.d/$service_file.rpmsave
+    fi
+done
+}
+# Clear the screen and handle the user choice
 clear
 if [[ -n $CHOICE ]]; then
     echo "Selected option: ${MIGRATION_OPTIONS[$CHOICE]}"
     case "${MIGRATION_OPTIONS[$CHOICE]}" in
-        *"SUSE Linux Enterprise"*)
+        *"SUSE Linux Enterprise"*|"SLE")
             $DRYRUN echo "Upgrading to ${MIGRATION_OPTIONS[$CHOICE]}"
+            SP=$(sed 's/\./-SP/' <<<"$VERSION") # 15.6 -> 15-SP6
+            ARCH=$(uname -i) # x86_64 XXX: check for other arches
+            $DRYRUN zypper ar -f https://updates.suse.com/SUSE/Products/SLE-BCI/$SP/$ARCH/product/ $TMP_REPO_NAME
+            $DRYRUN zypper in --force-resolution -y suseconnect-ng
+            $DRYRUN zypper in --force-resolution -y unified-installer-release SLE_BCI-release # sles-release is not in BCI
+            rpmsave_repo # invalidates all standard openSUSE repos
+            #rpm -e --nodeps openSUSE-release
+            # Dummy values for DRYRUN mode
+            email="foo@bar"
+            code="DUMMY-123456"
+            if [ -z "$DRYRUN" ]; then
+                read -p "Enter your email: " email
+	            read -p "Enter your registration code: " code
+            fi
+	        $DRYRUN suseconnect -e  $email -r $code 
+	        $DRYRUN SUSEConnect -p PackageHub/$VERSION/$ARCH
+            $DRYRUN zypper dup --allow-vendor-change --force-resolution -y
             ;;
         "openSUSE Tumbleweed")
             $DRYRUN echo "Upgrading to ${MIGRATION_OPTIONS[$CHOICE]}"
